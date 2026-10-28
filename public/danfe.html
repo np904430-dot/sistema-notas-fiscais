@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Documento fiscal</title>
+  <style>
+    @page { size: A4; margin: 8mm; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #e9ebe7; font: 9px/1.25 Arial, Helvetica, sans-serif; color: #000; }
+    .barra-acoes { position: sticky; top: 0; background: #13201c; padding: 10px 16px; display: flex; gap: 8px; justify-content: center; z-index: 2; }
+    .barra-acoes button { font: 600 13px system-ui, sans-serif; padding: 8px 16px; border-radius: 7px; border: 0; cursor: pointer; background: #0f766e; color: #fff; }
+    .barra-acoes button.sec { background: #2c3a35; }
+    .folha { width: 194mm; min-height: 281mm; margin: 16px auto; background: #fff; padding: 0; position: relative; box-shadow: 0 2px 14px rgba(0,0,0,.15); overflow: hidden; }
+    .folha-in { padding: 4mm; }
+    .marca-dagua { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+    .marca-dagua span { transform: rotate(-35deg); font: 700 44px Arial; color: rgba(200, 0, 0, .13); text-align: center; line-height: 1.1; }
+    table { width: 100%; border-collapse: collapse; }
+    .q { border: 1px solid #000; padding: 1px 3px 2px; vertical-align: top; }
+    .q small { display: block; font-size: 6.5px; text-transform: uppercase; }
+    .q b, .q div { font-size: 9px; font-weight: normal; display: block; min-height: 11px; }
+    .q b { font-weight: bold; }
+    .titulo { font: bold 8px Arial; text-transform: uppercase; margin: 5px 0 1px; }
+    .centro { text-align: center; }
+    .dir { text-align: right; }
+    .itens th { border: 1px solid #000; font-size: 6.5px; font-weight: normal; padding: 2px; text-transform: uppercase; }
+    .itens td { border-left: 1px solid #000; border-right: 1px solid #000; padding: 2px 3px; font-size: 8px; vertical-align: top; }
+    .itens tbody tr:last-child td { border-bottom: 1px solid #000; }
+    .canhoto td { height: 30px; }
+    .pontilhado { border-top: 1px dashed #000; margin: 4px 0; }
+    .danfe-box { font-size: 8px; }
+    .danfe-box strong { font-size: 15px; display: block; letter-spacing: 1px; }
+    .grande { font-size: 11px !important; font-weight: bold; }
+    .mono { font-family: 'Courier New', monospace; letter-spacing: .3px; }
+    svg.barcode { width: 100%; height: 34px; display: block; }
+    .nfse h1 { font-size: 14px; margin: 0; }
+    .nfse .q div { font-size: 10px; }
+    .discriminacao { min-height: 90mm; white-space: pre-wrap; font-size: 10px !important; }
+    @media print {
+      body { background: #fff; }
+      .barra-acoes { display: none; }
+      .folha { margin: 0; box-shadow: none; width: auto; min-height: auto; }
+    }
+  </style>
+</head>
+<body>
+  <div class="barra-acoes"><button onclick="print()">Imprimir / Salvar PDF</button><button class="sec" onclick="close()">Fechar</button></div>
+  <div id="doc"></div>
+<script>
+'use strict';
+const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const dig = (v) => String(v ?? '').replace(/\D/g, '');
+const n2 = (v, c = 2) => Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: c, maximumFractionDigits: c });
+const doc = (v) => { const d = dig(v); return d.length === 11 ? d.replace(/(\d{3})(\d{3})(\d{3})(\d{2})/, '$1.$2.$3-$4') : d.length === 14 ? d.replace(/(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})/, '$1.$2.$3/$4-$5') : v || ''; };
+const cep = (v) => dig(v).replace(/(\d{5})(\d{3})/, '$1-$2');
+const data = (s) => (s ? new Date(s.replace(' ', 'T')).toLocaleDateString('pt-BR') : '');
+const hora = (s) => (s ? new Date(s.replace(' ', 'T')).toLocaleTimeString('pt-BR') : '');
+const q = (rotulo, valor, attrs = '', forte = false) => `<td class="q" ${attrs}><small>${rotulo}</small>${forte ? `<b>${valor ?? ''}</b>` : `<div>${valor ?? ''}</div>`}</td>`;
+
+// Código de barras Code 128 (conjunto C) para a chave de acesso de 44 dígitos
+const C128 = '212222 222122 222221 121223 121322 131222 122213 122312 132212 221213 221312 231212 112232 122132 122231 113222 123122 123221 223211 221132 221231 213212 223112 312131 311222 321122 321221 312212 322112 322211 212123 212321 232121 111323 131123 131321 112313 132113 132311 211313 231113 231311 112133 112331 132131 113123 113321 133121 313121 211331 231131 213113 213311 213131 311123 311321 331121 312113 312311 332111 314111 221411 431111 111224 111422 121124 121421 141122 141221 112214 112412 122114 122411 142112 142211 241211 221114 413111 241112 134111 111242 121142 121241 114212 124112 124211 411212 421112 421211 212141 214121 412121 111143 111341 131141 114113 114311 411113 411311 113141 114131 311141 411131 211412 211214 211232 2331112'.split(' ');
+function code128C(numeros) {
+  const valores = [105];
+  for (let i = 0; i < numeros.length; i += 2) valores.push(Number(numeros.slice(i, i + 2)));
+  const soma = valores.reduce((s, v, i) => s + v * (i || 1), 0);
+  valores.push(soma % 103, 106);
+  let x = 10, barras = '';
+  for (const v of valores) {
+    [...C128[v]].forEach((w, i) => {
+      if (i % 2 === 0) barras += `<rect x="${x}" y="0" width="${w}" height="50"/>`;
+      x += Number(w);
+    });
+  }
+  return `<svg class="barcode" viewBox="0 0 ${x + 10} 50" preserveAspectRatio="none" aria-label="Código de barras">${barras}</svg>`;
+}
+
+function marcaDagua(n) {
+  const textos = [];
+  if (n.status === 'cancelada') textos.push('CANCELADA');
+  if (n.ambiente !== 'producao') textos.push('SEM VALOR FISCAL<br><small style="font-size:22px">EMITIDA EM HOMOLOGAÇÃO</small>');
+  return textos.length ? `<div class="marca-dagua"><span>${textos.join('<br>')}</span></div>` : '';
+}
+
+function danfe(n) {
+  const e = n.emitente, c = n.cliente, t = n.totais;
+  const chave = n.chave || '';
+  const endEmit = [e.logradouro, e.numero, e.complemento].filter(Boolean).join(', ');
+  return `<div class="folha">${marcaDagua(n)}<div class="folha-in">
+    <table class="canhoto"><tr>
+      ${q(`Recebemos de ${esc(e.razao_social)} os produtos/serviços constantes da nota fiscal indicada ao lado`, '', 'colspan="2" style="width:80%"')}
+      <td class="q centro" rowspan="2" style="width:20%"><b class="grande">NF-e</b><div>Nº ${String(n.numero).padStart(9, '0').replace(/(\d{3})(?=\d)/g, '$1.')}</div><div>Série ${n.serie}</div></td></tr>
+      <tr>${q('Data de recebimento', '', 'style="width:22%"')}${q('Identificação e assinatura do recebedor', '')}</tr></table>
+    <div class="pontilhado"></div>
+
+    <table><tr>
+      <td class="q" style="width:42%;height:30mm"><div style="font-size:12px;font-weight:bold;margin:4px 0">${esc(e.razao_social)}</div>
+        <div>${esc(endEmit)}</div><div>${esc(e.bairro)} · ${cep(e.cep)}</div><div>${esc(e.municipio)} / ${esc(e.uf)}</div><div>${esc(e.telefone)} ${esc(e.email)}</div></td>
+      <td class="q centro danfe-box" style="width:16%"><strong>DANFE</strong>Documento Auxiliar da Nota Fiscal Eletrônica
+        <div style="display:flex;justify-content:center;gap:6px;align-items:center;margin:4px 0"><span>0 - Entrada<br>1 - Saída</span><span style="border:1px solid #000;padding:2px 6px;font-size:14px;font-weight:bold">1</span></div>
+        <b class="grande">Nº ${String(n.numero).padStart(9, '0').replace(/(\d{3})(?=\d)/g, '$1.')}</b><b>Série ${n.serie}</b><div>Folha 1/1</div></td>
+      <td class="q" style="width:42%">${chave ? code128C(chave) : ''}<small style="margin-top:3px">Chave de acesso</small><b class="mono centro">${chave.replace(/(\d{4})/g, '$1 ')}</b>
+        <div class="centro" style="margin-top:4px">Consulta de autenticidade no portal nacional da NF-e<br>www.nfe.fazenda.gov.br/portal ou no site da Sefaz autorizadora</div></td>
+    </tr></table>
+    <table><tr>${q('Natureza da operação', esc(n.natureza), 'style="width:58%"')}${q('Protocolo de autorização de uso', n.protocolo ? `${esc(n.protocolo)} — ${data(n.emitida_em)} ${hora(n.emitida_em)}` : '', '', true)}</tr></table>
+    <table><tr>${q('Inscrição estadual', esc(e.ie))}${q('Insc. estadual do subst. trib.', '')}${q('CNPJ', doc(e.cnpj))}</tr></table>
+
+    <div class="titulo">Destinatário / Remetente</div>
+    <table><tr>${q('Nome / Razão social', esc(c.nome), 'style="width:58%"')}${q('CNPJ / CPF', doc(c.documento))}${q('Data da emissão', data(n.emitida_em))}</tr>
+      <tr>${q('Endereço', esc([c.logradouro, c.numero].filter(Boolean).join(', ')))}${q('Bairro / Distrito', esc(c.bairro))}${q('Data da saída', data(n.emitida_em))}</tr>
+      <tr><td colspan="3" style="padding:0"><table><tr>${q('Município', esc(c.municipio), 'style="width:40%"')}${q('UF', esc(c.uf))}${q('CEP', cep(c.cep))}${q('Telefone', esc(c.telefone))}${q('Inscrição estadual', esc(c.ie))}${q('Hora da saída', hora(n.emitida_em))}</tr></table></td></tr></table>
+
+    <div class="titulo">Cálculo do imposto</div>
+    <table><tr>${q('Base de cálc. do ICMS', n2(t.base_icms))}${q('Valor do ICMS', n2(t.valor_icms))}${q('Base cálc. ICMS ST', '0,00')}${q('Valor do ICMS ST', '0,00')}${q('V. total produtos', n2(t.valor_produtos), '', true)}</tr>
+      <tr>${q('Valor do frete', n2(t.frete))}${q('Valor do seguro', '0,00')}${q('Desconto', n2(t.desconto))}${q('Valor do IPI', n2(t.valor_ipi))}${q('V. total da nota', n2(t.valor_total), '', true)}</tr>
+      ${t.ibs_cbs_destacado ? `<tr>${q('Base de cálc. IBS/CBS', n2(t.base_ibs_cbs))}${q('Valor do IBS UF', n2(t.valor_ibs_uf))}${q('Valor do IBS Mun.', n2(t.valor_ibs_mun))}${q('Valor total do IBS', n2(t.valor_ibs))}${q('Valor da CBS', n2(t.valor_cbs))}</tr>` : ''}</table>
+
+    <div class="titulo">Transportador / Volumes transportados</div>
+    <table><tr>${q('Modalidade do frete', t.frete ? '0 - Por conta do emitente' : '9 - Sem ocorrência de transporte', 'style="width:40%"')}${q('Razão social', '')}${q('CNPJ / CPF', '')}${q('UF', '')}</tr></table>
+
+    <div class="titulo">Dados dos produtos / serviços</div>
+    <table class="itens"><thead><tr><th>Código</th><th style="width:34%">Descrição do produto / serviço</th><th>NCM/SH</th><th>CST/ CSOSN</th><th>CFOP</th><th>Un</th><th>Qtd</th><th>V. unit.</th><th>Desc.</th><th>V. total</th><th>BC ICMS</th><th>V. ICMS</th><th>V. IPI</th><th>Alíq. ICMS</th><th>Alíq. IPI</th></tr></thead>
+      <tbody>${n.itens.map((it) => `<tr><td>${esc(it.codigo)}</td><td>${esc(it.descricao)}</td><td>${it.ncm}</td><td>${it.cst_icms === '102' ? '0102' : '000'}</td><td>${it.cfop}</td><td>${esc(it.unidade)}</td>
+        <td class="dir">${n2(it.quantidade, 4)}</td><td class="dir">${n2(it.valor_unitario)}</td><td class="dir">${n2(it.desconto)}</td><td class="dir">${n2(it.valor_liquido)}</td>
+        <td class="dir">${n2(it.base_icms)}</td><td class="dir">${n2(it.valor_icms)}</td><td class="dir">${n2(it.valor_ipi)}</td><td class="dir">${n2(it.aliq_icms)}</td><td class="dir">${n2(it.aliq_ipi)}</td></tr>`).join('')}
+      <tr><td style="height:${Math.max(10, 70 - n.itens.length * 6)}mm"></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr></tbody></table>
+
+    <div class="titulo">Dados adicionais</div>
+    <table><tr><td class="q" style="width:65%;height:28mm"><small>Informações complementares</small><div>
+      ${e.regime === '1' ? 'DOCUMENTO EMITIDO POR ME OU EPP OPTANTE PELO SIMPLES NACIONAL. NÃO GERA DIREITO A CRÉDITO FISCAL DE IPI.<br>' : ''}
+      ${esc(n.observacoes)}${n.status === 'cancelada' ? `<br><b>NF-e CANCELADA em ${data(n.cancelada_em)}: ${esc(n.justificativa_cancelamento)}</b>` : ''}</div></td>
+      ${q('Reservado ao fisco', '')}</tr></table>
+  </div></div>`;
+}
+
+function nfse(n) {
+  const e = n.emitente, c = n.cliente, t = n.totais;
+  const discr = n.itens.map((it) => `${n2(it.quantidade, 2)} x ${esc(it.descricao)} — R$ ${n2(it.valor_liquido)}`).join('\n') + (n.observacoes ? `\n\n${esc(n.observacoes)}` : '');
+  const aliq = n.itens[0]?.aliq_iss ?? 0;
+  return `<div class="folha nfse">${marcaDagua(n)}<div class="folha-in">
+    <table><tr><td class="q" style="width:70%;padding:8px"><h1>NOTA FISCAL DE SERVIÇOS ELETRÔNICA — NFS-e</h1><div>Prefeitura Municipal de ${esc(e.municipio)} / ${esc(e.uf)}</div></td>
+      ${q('Número da nota', `<span class="grande">${String(n.numero).padStart(8, '0')}</span>`, 'class="q centro"')}</tr>
+      <tr>${q('Data e hora de emissão', `${data(n.emitida_em)} ${hora(n.emitida_em)}`)}${q('Código de verificação', `<span class="mono">${esc(n.protocolo)}</span>`)}</tr></table>
+
+    <div class="titulo">Prestador de serviços</div>
+    <table><tr>${q('Razão social', esc(e.razao_social), 'style="width:60%"', true)}${q('CPF/CNPJ', doc(e.cnpj))}${q('Inscrição municipal', esc(e.im))}</tr>
+      <tr>${q('Endereço', esc([e.logradouro, e.numero, e.complemento, e.bairro].filter(Boolean).join(', ')))}${q('Município', `${esc(e.municipio)} / ${esc(e.uf)}`)}${q('CEP', cep(e.cep))}</tr></table>
+
+    <div class="titulo">Tomador de serviços</div>
+    <table><tr>${q('Nome / Razão social', esc(c.nome), 'style="width:60%"', true)}${q('CPF/CNPJ', doc(c.documento))}${q('E-mail', esc(c.email))}</tr>
+      <tr>${q('Endereço', esc([c.logradouro, c.numero, c.bairro].filter(Boolean).join(', ')))}${q('Município', `${esc(c.municipio)} / ${esc(c.uf)}`)}${q('CEP', cep(c.cep))}</tr></table>
+
+    <div class="titulo">Discriminação dos serviços</div>
+    <table><tr><td class="q"><div class="discriminacao">${discr}</div></td></tr></table>
+
+    <table style="margin-top:4px"><tr>${q('Código do serviço (LC 116/03)', esc(n.itens[0]?.codigo_servico || '—'), 'style="width:40%"')}${q('Natureza da operação', esc(n.natureza))}</tr></table>
+    <table><tr>${q('Valor dos serviços', 'R$ ' + n2(t.valor_servicos), '', true)}${q('Desconto incondicionado', 'R$ ' + n2(t.desconto))}${q('Base de cálculo', 'R$ ' + n2(t.valor_total))}${q('Alíquota', n2(aliq) + '%')}${q('Valor do ISS', 'R$ ' + n2(t.valor_iss))}${q('ISS retido', t.iss_retido ? 'Sim' : 'Não')}</tr></table>
+    <table><tr><td class="q dir" style="padding:6px"><small>Valor líquido da nota</small><b style="font-size:16px">R$ ${n2(t.valor_liquido)}</b></td></tr></table>
+    <div class="titulo">Outras informações</div>
+    <table><tr><td class="q" style="height:18mm"><div>${e.regime === '1' ? 'Prestador optante pelo Simples Nacional.<br>' : ''}${n.status === 'cancelada' ? `<b>NFS-e CANCELADA em ${data(n.cancelada_em)}: ${esc(n.justificativa_cancelamento)}</b>` : ''}</div></td></tr></table>
+  </div></div>`;
+}
+
+(async () => {
+  const id = new URLSearchParams(location.search).get('id');
+  const alvo = document.getElementById('doc');
+  try {
+    const resp = await fetch(`/api/notas/${id}`);
+    const n = await resp.json();
+    if (resp.status === 401) {
+      alvo.innerHTML = '<p style="text-align:center;padding:40px;font-size:14px">Sua sessão expirou. <a href="/">Entre no sistema</a> e abra a nota novamente.</p>';
+      return;
+    }
+    if (!resp.ok) throw new Error(n.erro);
+    document.title = `${n.tipo === 'NFe' ? 'DANFE' : 'NFS-e'} ${n.numero}`;
+    alvo.innerHTML = n.tipo === 'NFe' ? danfe(n) : nfse(n);
+  } catch (err) {
+    alvo.innerHTML = `<p style="text-align:center;padding:40px;font-size:14px">${esc(err.message || 'Nota não encontrada')}</p>`;
+  }
+})();
+</script>
+</body>
+</html>

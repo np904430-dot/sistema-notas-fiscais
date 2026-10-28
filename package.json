@@ -1,0 +1,14 @@
+{
+  "name": "sistema-notas-fiscais",
+  "version": "1.0.0",
+  "description": "Sistema web para emissão de NF-e (produtos) e NFS-e (serviços)",
+  "main": "server.js",
+  "private": true,
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server.js",
+    "dev": "node --watch --disable-warning=ExperimentalWarning server.js"
+  }
+}
